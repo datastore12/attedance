@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sundros2019 - በጋራ የሚሰራ አቴንዳንስ</title>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 650px; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .school-header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        .school-name { color: #007bff; font-size: 32px; font-weight: bold; margin: 0; }
+        
+        .nav-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
+        .nav-btn { flex: 1; padding: 10px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .nav-btn.active { background: #007bff; }
+        
+        .form-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        input[type="text"], input[type="date"] { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; }
+        button { padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        
+        .date-section { background: #e9ecef; padding: 12px; border-radius: 5px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #007bff; color: white; }
+        .btn-delete { background-color: #dc3545; padding: 5px 10px; font-size: 12px; border: none; color: white; border-radius: 3px; cursor: pointer; }
+        .status-checkbox { width: 20px; height: 20px; cursor: pointer; }
+        .page-view { display: none; }
+        .page-view.active { display: block; }
+        .history-card { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 5px; padding: 15px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="school-header">
+        <h1 class="school-name">Sundros2019</h1>
+        <p style="color:#555; margin: 5px 0 0 0;">በኦንላይን በጋራ የሚሰራ አቴንዳንስ</p>
+    </div>
+
+    <div class="nav-buttons">
+        <button class="nav-btn active" id="btnToday" onclick="switchPage('today')">የዕለቱ ሊስት</button>
+        <button class="nav-btn" id="btnHistory" onclick="switchPage('history')">የቀደሙ ቀናት ታሪክ</button>
+    </div>
+
+    <div id="todayPage" class="page-view active">
+        <div class="date-section">
+            <label for="attendanceDate"><strong>ቀን ይምረጡ፡</strong></label>
+            <input type="date" id="attendanceDate" onchange="loadData()">
+        </div>
+
+        <div class="form-group">
+            <input type="text" id="studentName" placeholder="አዲስ ተማሪ ጨምር...">
+            <button onclick="addStudent()">ተማሪ ጨምር</button>
+        </div>
+
+        <h3 id="currentListTitle" style="color: #007bff;"></h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>ተ.ቁ</th>
+                    <th>የተማሪ ስም</th>
+                    <th>ተገኝቷል / አልተገኘም</th>
+                    <th>ድርጊት</th>
+                </tr>
+            </thead>
+            <tbody id="studentList"></tbody>
+        </table>
+    </div>
+
+    <div id="historyPage" class="page-view">
+        <h3>የተመዘገቡ ታሪኮች (የ24 ሰዓት)</h3>
+        <div id="historyContainer"></div>
+    </div>
+</div>
+
+<script>
+    // ⚠️ የራስህን የFirebase Config መረጃ እዚህ ተካ
+    const firebaseConfig = {
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_PROJECT.firebaseapp.com",
+        databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+        projectId: "YOUR_PROJECT_ID",
+        storageBucket: "YOUR_PROJECT.appspot.com",
+        messagingSenderId: "YOUR_SENDER_ID",
+        appId: "YOUR_APP_ID"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+    const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+    document.getElementById('attendanceDate').valueAsDate = new Date();
+
+    function switchPage(page) {
+        document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+
+        if (page === 'today') {
+            document.getElementById('todayPage').classList.add('active');
+            document.getElementById('btnToday').classList.add('active');
+        } else {
+            document.getElementById('historyPage').classList.add('active');
+            document.getElementById('btnHistory').classList.add('active');
+            loadHistory();
+        }
+    }
+
+    function getSelectedDate() {
+        return document.getElementById('attendanceDate').value;
+    }
+
+    function addStudent() {
+        let nameInput = document.getElementById('studentName');
+        let name = nameInput.value.trim();
+        if (name === "") return alert("እባክዎን የተማሪ ስም ያስገቡ!");
+
+        let studentId = Date.now();
+        database.ref('students/' + studentId).set({
+            id: studentId,
+            name: name
+        });
+        nameInput.value = "";
+    }
+
+    function deleteStudent(id) {
+        if(confirm("በእርግጥ ይህንን ተማሪ ማጥፋት ይፈልጋሉ?")) {
+            database.ref('students/' + id).remove();
+        }
+    }
+
+    function toggleAttendance(studentId, isChecked) {
+        let dateKey = getSelectedDate();
+        if (!dateKey) return alert("እባክዎን ቀን ይምረጡ!");
+
+        let dateRef = database.ref('attendanceRecords/' + dateKey);
+        dateRef.once('value', snapshot => {
+            let record = snapshot.val();
+            let createdTimestamp = (record && record.createdTimestamp) ? record.createdTimestamp : Date.now();
+            
+            database.ref('attendanceRecords/' + dateKey + '/createdTimestamp').set(createdTimestamp);
+            database.ref('attendanceRecords/' + dateKey + '/data/' + studentId).set(isChecked);
+        });
+    }
+
+    // በReal-time ከኦንላይን ዳታቤዝ መረጃዎችን ማንበቢያ
+    function loadData() {
+        let dateKey = getSelectedDate();
+        document.getElementById('currentListTitle').innerText = `የቀን ፡ ${dateKey} ሊስት`;
+
+        database.ref().on('value', snapshot => {
+            let allData = snapshot.val() || {};
+            let studentsObj = allData.students || {};
+            let recordsObj = allData.attendanceRecords || {};
+
+            let students = Object.values(studentsObj);
+            let currentRecord = recordsObj[dateKey] || {};
+            let attendanceData = currentRecord.data || {};
+
+            let tbody = document.getElementById('studentList');
+            tbody.innerHTML = "";
+
+            if (students.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">ምንም የተመዘገበ ተማሪ የለም!</td></tr>';
+                return;
+            }
+
+            students.forEach((student, index) => {
+                let isPresent = attendanceData[student.id] === true;
+                let row = `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${student.name}</td>
+                        <td style="text-align: center;">
+                            <input type="checkbox" class="status-checkbox" 
+                                ${isPresent ? 'checked' : ''} 
+                                onchange="toggleAttendance(${student.id}, this.checked)">
+                        </td>
+                        <td>
+                            <button class="btn-delete" onclick="deleteStudent(${student.id})">አጥፋ</button>
+                        </td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+
+            cleanExpiredRecordsByTime(recordsObj);
+        });
+    }
+
+    function cleanExpiredRecordsByTime(recordsObj) {
+        let currentTime = Date.now();
+        for (let dateKey in recordsObj) {
+            let recordTime = recordsObj[dateKey].createdTimestamp;
+            if (recordTime && (currentTime - recordTime >= TWENTY_FOUR_HOURS_MS)) {
+                database.ref('attendanceRecords/' + dateKey).remove();
+            }
+        }
+    }
+
+    function loadHistory() {
+        database.ref().once('value', snapshot => {
+            let allData = snapshot.val() || {};
+            let students = Object.values(allData.students || {});
+            let records = allData.attendanceRecords || {};
+            let container = document.getElementById('historyContainer');
+            container.innerHTML = "";
+
+            let dates = Object.keys(records).reverse();
+            if (dates.length === 0) {
+                container.innerHTML = "<p style='text-align:center;'>ምንም የተቀመጠ ታሪክ የለም።</p>";
+                return;
+            }
+
+            let currentTime = Date.now();
+            dates.forEach(date => {
+                let card = document.createElement('div');
+                card.className = 'history-card';
+                let createdTimestamp = records[date].createdTimestamp || currentTime;
+                let remainingMs = TWENTY_FOUR_HOURS_MS - (currentTime - createdTimestamp);
+                let remainingHours = Math.max(0, Math.floor(remainingMs / (1000 * 60 * 60)));
+
+                let html = `<h4>የቀን፡ ${date} ሊስት (ቀሪ፡ ${remainingHours} ሰዓት)</h4><table><thead><tr><th>ተማሪ</th><th>ሁኔታ</th></tr></thead><tbody>`;
+                students.forEach(student => {
+                    let status = (records[date].data && records[date].data[student.id]) 
+                        ? "<span style='color:green; font-weight:bold;'>ተገኝቷል</span>" 
+                        : "<span style='color:red;'>አልተገኘም</span>";
+                    html += `<tr><td>${student.name}</td><td>${status}</td></tr>`;
+                });
+                html += `</tbody></table>`;
+                card.innerHTML = html;
+                container.appendChild(card);
+            });
+        });
+    }
+
+    window.onload = loadData;
+</script>
+
+</body>
+</html>
